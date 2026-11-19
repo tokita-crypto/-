@@ -1,17 +1,16 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#e52b2b">
 <title>筋トレ記録</title>
 <style>
 :root{
   --red:#e52b2b; --red-l:#ff6b6b; --green:#2ec41e; --bg:#ececec; --card:#fff;
-  --text:#111; --sub:#9a9a9a; --line:#e2e2e2;
+  --text:#111; --sub:#9a9a9a; --line:#e2e2e2; color-scheme:light;
 }
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:11;background:var(--red)}
+.dlg-box{background:#fff;border-radius:16px;margin:auto;padding:20px;width:min(320px,90vw);text-align:center}
+.dlg-box p{margin:0 0 16px;font-size:15px;line-height:1.6}
+.dlg-box .btns{display:flex;gap:10px}
+.dlg-box .btns button{flex:1;padding:12px;border-radius:10px;background:#eee;font-weight:700}
+.dlg-box .btns .ok{background:var(--red);color:#fff}
+.sync{font-size:11px;text-align:center;color:var(--sub);margin:-20px 12px 20px}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif}
@@ -20,7 +19,7 @@ input{font:inherit}
 .hidden{display:none!important}
 
 /* header */
-header{background:var(--red);color:#fff;padding:calc(env(safe-area-inset-top) + 10px) 12px 12px;position:sticky;top:0;z-index:10}
+header{background:var(--red);color:#fff;padding:10px 12px 12px;position:sticky;top:env(safe-area-inset-top,0px);z-index:10}
 .bar{display:flex;align-items:center;justify-content:space-between;height:52px}
 .bar h1{font-size:20px;margin:0;font-weight:700}
 .pill{background:var(--red-l);border-radius:26px;height:44px;min-width:44px;padding:0 16px;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700}
@@ -116,6 +115,7 @@ header{background:var(--red);color:#fff;padding:calc(env(safe-area-inset-top) + 
     <div>今月の負荷(kg)<b id="mLoad">0</b></div>
   </div>
   <button class="big-btn" id="todayBtn">＋ 今日のトレーニングを追加</button>
+  <div class="sync" id="syncNote"></div>
   <div class="tools">
     <button id="exportBtn">バックアップ保存</button>
     <label>バックアップ読込<input type="file" id="importFile" accept="application/json" hidden></label>
@@ -142,6 +142,7 @@ header{background:var(--red);color:#fff;padding:calc(env(safe-area-inset-top) + 
 </section>
 
 <!-- ===== 種目選択 ===== -->
+<div class="modal hidden" id="dlg" style="align-items:center"><div class="dlg-box"><p id="dlgMsg"></p><div class="btns"><button id="dlgNo">キャンセル</button><button class="ok" id="dlgOk">OK</button></div></div></div>
 <div class="modal hidden" id="modal">
   <div class="sheet">
     <div class="sheet-h"><b>種目を追加</b><button id="closeModal">✕</button></div>
@@ -173,7 +174,72 @@ function load(){
   try{ const d = JSON.parse(localStorage.getItem(KEY)); if(d && d.logs) return d; }catch(e){}
   return {logs:{}, custom:{}};
 }
-function save(){ try{ localStorage.setItem(KEY, JSON.stringify(db)); }catch(e){ toast("保存に失敗しました"); } }
+/* クラウド保存（claude.ai で開いたとき）。各自のデータは本人だけが読める領域に保存 */
+let cloud=null, uid=null, pending=new Set(), saveTimer=null, lastSent={};
+function save(dateKey){
+  try{ localStorage.setItem(KEY, JSON.stringify(db)); }catch(e){}
+  if(!cloud) return;
+  pending.add(dateKey===undefined ? curDate : dateKey);
+  clearTimeout(saveTimer); saveTimer=setTimeout(flush, 600);
+}
+async function flush(){
+  const keys=[...pending]; pending.clear();
+  for(const k of keys){
+    if(!k) continue;
+    const ref=cloud.collection("data/users/"+uid).doc(k==="_custom"?"custom":"d-"+k);
+    const body = k==="_custom" ? {custom:db.custom} : {list:db.logs[k]||[]};
+    const js=JSON.stringify(body);
+    if(lastSent[k]===js) continue;
+    try{
+      if(k!=="_custom" && !(db.logs[k]||[]).length) await ref.delete(); else await ref.set(body);
+      lastSent[k]=js;
+    }catch(e){ toast("クラウド保存に失敗しました"); pending.add(k); }
+  }
+}
+function ask(msg){
+  return new Promise(res=>{
+    $("dlgMsg").textContent=msg; $("dlg").classList.remove("hidden");
+    const done=v=>{ $("dlg").classList.add("hidden"); res(v); };
+    $("dlgOk").onclick=()=>done(true); $("dlgNo").onclick=()=>done(false);
+  });
+}
+async function initCloud(){
+  if(!window.claude || !claude.use) return;
+  const [d,u]=await Promise.all([claude.use("db"), claude.use("user")]);
+  if(!d || !u) return;
+  const id=await u.id(); if(!id) return;
+  cloud=d; uid=id;
+  $("syncNote").textContent="クラウドと同期中…";
+  const timer=setTimeout(()=>{ $("syncNote").textContent="クラウドに接続できません（この端末に一時保存中）"; },10000);
+  let first=true;
+  cloud.collection("data/users/"+uid).onSnapshot(snap=>{
+    if(snap.metadata.fromCache && first) return;
+    clearTimeout(timer);
+    $("syncNote").textContent="☁ クラウドに自動保存されます";
+    if(first){
+      first=false;
+      // 初回：この端末にだけある記録をクラウドへ送る
+      const remote=new Set(snap.docs.map(x=>x.id));
+      Object.keys(db.logs).forEach(k=>{ if(!remote.has("d-"+k) && db.logs[k].length) pending.add(k); });
+      if(!remote.has("custom") && Object.keys(db.custom).length) pending.add("_custom");
+    }
+    snap.docChanges().forEach(ch=>{
+      if(ch.doc.metadata.hasPendingWrites) return;
+      const id=ch.doc.id, data=ch.type==="removed"?null:ch.doc.data();
+      if(id==="custom"){ db.custom=data?JSON.parse(JSON.stringify(data.custom||{})):{}; lastSent["_custom"]=JSON.stringify({custom:db.custom}); }
+      else if(id.startsWith("d-")){
+        const k=id.slice(2);
+        if(pending.has(k)) return;
+        if(data){ db.logs[k]=JSON.parse(JSON.stringify(data.list||[])); lastSent[k]=JSON.stringify({list:db.logs[k]}); }
+        else delete db.logs[k];
+      }
+    });
+    try{ localStorage.setItem(KEY, JSON.stringify(db)); }catch(e){}
+    if(pending.size){ clearTimeout(saveTimer); saveTimer=setTimeout(flush,300); }
+    if(!$("home").classList.contains("hidden")) renderCal();
+    else if(!document.activeElement || document.activeElement.tagName!=="INPUT") renderDay();
+  }, e=>{ clearTimeout(timer); $("syncNote").textContent="クラウドに接続できません（この端末に一時保存中）"; });
+}
 const $ = id => document.getElementById(id);
 const pad = n => String(n).padStart(2,"0");
 const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
@@ -228,7 +294,7 @@ function openDay(date){
   renderDay();
 }
 $("backBtn").onclick=()=>{
-  if(db.logs[curDate] && !db.logs[curDate].length){ delete db.logs[curDate]; save(); }
+  if(db.logs[curDate] && !db.logs[curDate].length){ delete db.logs[curDate]; save(curDate); }
   $("dayView").classList.add("hidden"); $("home").classList.remove("hidden");
   const [y,m]=curDate.split("-"); viewMonth=new Date(+y,+m-1,1);
   renderCal();
@@ -287,7 +353,7 @@ function renderDay(){
       ex.sets.push({w:last?last.w:"", r:""}); save(); renderDay();
     };
     c.querySelector('[data-a="delEx"]').onclick=()=>{
-      if(confirm(`「${ex.name}」を削除しますか？`)){ list.splice(i,1); save(); renderDay(); }
+      ask(`「${ex.name}」を削除しますか？`).then(ok=>{ if(ok){ list.splice(i,1); save(); renderDay(); } });
     };
     c.querySelector('[data-a="up"]').onclick=()=>{ [list[i-1],list[i]]=[list[i],list[i-1]]; save(); renderDay(); };
     c.querySelector('[data-a="down"]').onclick=()=>{ [list[i+1],list[i]]=[list[i],list[i+1]]; save(); renderDay(); };
@@ -318,9 +384,9 @@ function renderExList(){
     row.innerHTML=`<button class="pick">${esc(n)}${c?'<span class="tag">マイ種目</span>':""}</button>${c?'<button class="rm-ex">🗑</button>':""}`;
     row.querySelector(".pick").onclick=()=>addExercise(n);
     if(c) row.querySelector(".rm-ex").onclick=()=>{
-      if(confirm(`マイ種目「${n}」を一覧から削除しますか？（過去の記録は残ります）`)){
-        db.custom[curPart]=custom.filter(x=>x!==n); save(); renderExList();
-      }
+      ask(`マイ種目「${n}」を一覧から削除しますか？（過去の記録は残ります）`).then(ok=>{ if(ok){
+        db.custom[curPart]=custom.filter(x=>x!==n); save("_custom"); renderExList();
+      }});
     };
     box.appendChild(row);
   });
@@ -329,7 +395,7 @@ $("addCustom").onclick=()=>{
   const n=$("customName").value.trim(); if(!n) return;
   db.custom[curPart]=db.custom[curPart]||[];
   if(db.custom[curPart].includes(n)||PARTS[curPart].includes(n)){ toast("すでにあります"); return; }
-  db.custom[curPart].unshift(n); save(); $("customName").value=""; renderExList(); toast(`「${n}」を追加しました`);
+  db.custom[curPart].unshift(n); save("_custom"); $("customName").value=""; renderExList(); toast(`「${n}」を追加しました`);
 };
 function addExercise(name){
   db.logs[curDate]=db.logs[curDate]||[];
@@ -341,22 +407,26 @@ function addExercise(name){
 }
 
 /* ---------- バックアップ ---------- */
-$("exportBtn").onclick=()=>{
-  const blob=new Blob([JSON.stringify(db,null,1)],{type:"application/json"});
-  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
-  a.download=`kintore-backup-${ymd(new Date())}.json`; a.click();
+$("exportBtn").onclick=async()=>{
+  const json=JSON.stringify(db,null,1), name=`kintore-backup-${ymd(new Date())}.json`;
+  const dl = window.claude && claude.use ? await claude.use("downloads") : null;
+  if(dl){ try{ await dl.save({filename:name, data:json}); }catch(e){} return; }
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([json],{type:"application/json"}));
+  a.download=name; a.click();
 };
 $("importFile").onchange=e=>{
   const f=e.target.files[0]; if(!f) return;
   f.text().then(t=>{
     try{ const d=JSON.parse(t); if(!d.logs) throw 0;
-      if(confirm("現在のデータを置き換えて読み込みますか？")){ db={logs:d.logs, custom:d.custom||{}}; save(); renderCal(); toast("読み込みました"); }
+      ask("現在のデータを置き換えて読み込みますか？").then(ok=>{ if(!ok) return;
+        const old=Object.keys(db.logs); db={logs:d.logs, custom:d.custom||{}};
+        new Set([...old,...Object.keys(db.logs)]).forEach(k=>save(k)); save("_custom");
+        renderCal(); toast("読み込みました"); });
     }catch(_){ toast("ファイルが正しくありません"); }
   });
   e.target.value="";
 };
 
 renderCal();
+initCloud();
 </script>
-</body>
-</html>
