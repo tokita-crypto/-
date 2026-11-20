@@ -133,6 +133,15 @@ header{position:sticky;top:0;z-index:10;padding:10px 14px 14px;
 
 /* modal */
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:50;display:flex;align-items:flex-end}
+.pill svg{width:22px;height:22px;display:block}
+#shot{align-items:stretch;background:var(--bg);flex-direction:column;padding:calc(env(safe-area-inset-top,0px) + 12px) 14px calc(env(safe-area-inset-bottom,0px) + 14px)}
+#shot .shot-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+#shot .shot-h b{font-size:16px;font-weight:900}
+#shot .shot-h button{font-size:22px;color:var(--sub);width:40px;height:40px}
+#shot .shot-img{flex:1;min-height:0;overflow-y:auto;border-radius:14px;border:1px solid var(--line);-webkit-overflow-scrolling:touch}
+#shot .shot-img img{display:block;width:100%;height:auto;-webkit-touch-callout:default}
+#shot .shot-hint{font-size:11px;color:var(--sub);text-align:center;margin:10px 0}
+#shot .shot-save{padding:15px;border-radius:14px;font-size:16px;font-weight:900;color:#1a0d04;background:linear-gradient(180deg,var(--accent2),var(--accent))}
 .sheet{background:var(--surface);border-top:2px solid var(--accent);width:100%;max-height:85vh;border-radius:20px 20px 0 0;display:flex;flex-direction:column;padding-bottom:env(safe-area-inset-bottom,0px)}
 .sheet-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px}
 .sheet-h b{font-size:17px;font-weight:900}
@@ -193,7 +202,7 @@ header{position:sticky;top:0;z-index:10;padding:10px 14px 14px;
     <div class="bar">
       <button class="pill" id="backBtn">‹</button>
       <h1 id="dayLabel"></h1>
-      <span style="width:44px"></span>
+      <button class="pill" id="shotBtn" aria-label="この日の記録を画像にする"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
     </div>
     <div class="stats">
       <div class="stat"><small>合計種目数</small><b id="sEx">0</b></div>
@@ -222,6 +231,14 @@ header{position:sticky;top:0;z-index:10;padding:10px 14px 14px;
 </section>
 
 </div><!-- /#app -->
+
+<!-- ===== 記録の画像 ===== -->
+<div class="modal hidden" id="shot">
+  <div class="shot-h"><b>この日の記録を画像で保存</b><button id="shotClose" aria-label="閉じる">✕</button></div>
+  <div class="shot-img"><img id="shotImg" alt="この日のトレーニング記録の画像"></div>
+  <div class="shot-hint">画像を長押しして「写真に保存」でも保存できます</div>
+  <button class="shot-save" id="shotSave">画像を保存</button>
+</div>
 
 <!-- ===== 種目選択 ===== -->
 <div class="modal hidden" id="dlg" style="align-items:center"><div class="dlg-box"><p id="dlgMsg"></p><div class="btns"><button id="dlgNo">キャンセル</button><button class="ok" id="dlgOk">OK</button></div></div></div>
@@ -711,6 +728,107 @@ $("importFile").onchange=e=>{
     }catch(_){ toast("ファイルが正しくありません"); }
   });
   e.target.value="";
+};
+
+/* ---------- 記録を画像にする ---------- */
+let shotBlob=null, shotUrl=null, shotName="";
+function wrapText(ctx,text,maxW){
+  const lines=[]; String(text).split("\n").forEach(par=>{
+    let line=""; for(const ch of par){ if(ctx.measureText(line+ch).width>maxW && line){ lines.push(line); line=ch; } else line+=ch; }
+    lines.push(line);
+  }); return lines;
+}
+function rrect(ctx,x,y,w,h,rad){ ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x,y,w,h,rad) : ctx.rect(x,y,w,h); }
+async function makeShot(date){
+  const list=(db.logs[date]||[]);
+  try{ await Promise.race([Promise.all([document.fonts.load('40px "Bebas Neue"'),document.fonts.load('900 20px "Noto Sans JP"'),document.fonts.load('500 20px "Noto Sans JP"')]), new Promise(r=>setTimeout(r,2500))]); }catch(e){}
+  const W=1080, P=56, NUM='"Bebas Neue",Impact,sans-serif', JP='"Noto Sans JP","Hiragino Sans",sans-serif';
+  const C={bg:"#111214",surface:"#1b1c20",surface2:"#24262b",line:"#32343a",text:"#f3f1ee",sub:"#8c8e96",accent:"#ff6a13",accent2:"#ffb020"};
+  const meas=document.createElement("canvas").getContext("2d");
+  // 高さを先に計算
+  const blocks=list.map(ex=>{
+    const time=isTime(ex.name);
+    const sets=ex.sets.filter(s=>num(s.r)>0);
+    meas.font=`500 30px ${JP}`;
+    const memo=ex.memo?wrapText(meas,ex.memo,W-2*P-64):[];
+    const h=96+Math.max(1,sets.length)*64+(memo.length?24+memo.length*44:0)+28;
+    return {ex,time,sets,memo,h};
+  });
+  const H=420+blocks.reduce((a,b)=>a+b.h+28,0)+120;
+  const cv=document.createElement("canvas"); cv.width=W; cv.height=H; const ctx=cv.getContext("2d");
+  // 背景
+  ctx.fillStyle=C.bg; ctx.fillRect(0,0,W,H);
+  const gl=ctx.createRadialGradient(W/2,-80,10,W/2,-80,900); gl.addColorStop(0,"rgba(255,106,19,.28)"); gl.addColorStop(1,"rgba(255,106,19,0)");
+  ctx.fillStyle=gl; ctx.fillRect(0,0,W,700);
+  ctx.strokeStyle="rgba(255,255,255,.025)"; ctx.lineWidth=3;
+  for(let x=-H;x<W;x+=14){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x+H,H); ctx.stroke(); }
+  // ヘッダー
+  ctx.textBaseline="alphabetic"; ctx.textAlign="left";
+  const lg=ctx.createLinearGradient(0,60,0,140); lg.addColorStop(0,"#fff"); lg.addColorStop(.5,C.accent2); lg.addColorStop(1,C.accent);
+  ctx.fillStyle=lg; ctx.font=`96px ${NUM}`; ctx.fillText("IRON LOG",P,140);
+  const [y,m,d]=date.split("-"); const wd="日月火水木金土"[new Date(+y,+m-1,+d).getDay()];
+  ctx.fillStyle=C.text; ctx.font=`64px ${NUM}`; ctx.textAlign="right"; ctx.fillText(`${y}.${m}.${d}`,W-P,128);
+  ctx.fillStyle=C.sub; ctx.font=`700 28px ${JP}`; ctx.fillText(`${wd}曜日のトレーニング`,W-P,172); ctx.textAlign="left";
+  ctx.fillStyle=C.accent; ctx.fillRect(P,200,W-2*P,4);
+  // 合計
+  const t=dayTotals(list); const stats=[["種目",t.ex],["セット",t.sets],["レップ",t.reps],["負荷 kg",fmt(t.load)]];
+  const gw=(W-2*P-3*20)/4;
+  stats.forEach(([lab,v],i)=>{ const x=P+i*(gw+20), yy=236;
+    ctx.fillStyle=C.surface2; rrect(ctx,x,yy,gw,140,22); ctx.fill(); ctx.strokeStyle=C.line; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle=C.sub; ctx.font=`700 24px ${JP}`; ctx.textAlign="center"; ctx.fillText(lab,x+gw/2,yy+42);
+    ctx.fillStyle=C.text; ctx.font=`72px ${NUM}`; ctx.fillText(String(v),x+gw/2,yy+116); ctx.textAlign="left"; });
+  // 種目
+  let yy=420;
+  blocks.forEach(({ex,time,sets,memo,h})=>{
+    ctx.fillStyle=C.surface; rrect(ctx,P,yy,W-2*P,h,28); ctx.fill(); ctx.strokeStyle=C.line; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle=C.text; ctx.font=`900 40px ${JP}`; ctx.fillText(ex.name,P+32,yy+60);
+    if(ex.part){ ctx.font=`700 24px ${JP}`; const tw=ctx.measureText(ex.part).width+28; const tx=W-P-32-tw;
+      ctx.strokeStyle=C.accent; ctx.lineWidth=2; rrect(ctx,tx,yy+28,tw,42,10); ctx.stroke(); ctx.fillStyle=C.accent; ctx.fillText(ex.part,tx+14,yy+58); }
+    let ry=yy+96;
+    if(!sets.length){ ctx.fillStyle=C.sub; ctx.font=`500 28px ${JP}`; ctx.fillText("記録なし",P+32,ry+42); ry+=64; }
+    sets.forEach((s,j)=>{
+      const w=num(s.w), r=num(s.r), v=time?0:rm(w,r);
+      ctx.strokeStyle=C.line; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(P+24,ry); ctx.lineTo(W-P-24,ry); ctx.stroke();
+      ctx.fillStyle="#2b2d32"; ctx.beginPath(); ctx.arc(P+58,ry+32,22,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle=C.accent2; ctx.font=`32px ${NUM}`; ctx.textAlign="center"; ctx.fillText(String(j+1),P+58,ry+43);
+      ctx.textAlign="right"; ctx.fillStyle=C.text; ctx.font=`52px ${NUM}`;
+      const wTxt=w>0?fmt(w):(time?"":"自重");
+      if(wTxt){ ctx.font=w>0?`52px ${NUM}`:`700 30px ${JP}`; ctx.fillText(wTxt,P+330,ry+48); if(w>0){ ctx.fillStyle=C.sub; ctx.font=`500 24px ${JP}`; ctx.textAlign="left"; ctx.fillText("kg",P+338,ry+48); } }
+      ctx.textAlign="right"; ctx.fillStyle=C.text; ctx.font=`52px ${NUM}`; ctx.fillText(fmt(r),P+560,ry+48);
+      ctx.fillStyle=C.sub; ctx.font=`500 24px ${JP}`; ctx.textAlign="left"; ctx.fillText(time?"秒":"回",P+568,ry+48);
+      ctx.textAlign="right"; ctx.fillStyle=C.accent2; ctx.font=`36px ${NUM}`; ctx.fillText(v?`RM ${fmt(v)}KG`:"",W-P-32,ry+46);
+      ctx.textAlign="left"; ry+=64;
+    });
+    if(memo.length){ ry+=12; ctx.fillStyle=C.surface2; rrect(ctx,P+24,ry,W-2*P-48,memo.length*44+24,16); ctx.fill();
+      ctx.fillStyle="#cdb8a6"; ctx.font=`500 30px ${JP}`; memo.forEach((ln,k)=>ctx.fillText(ln,P+40,ry+46+k*44)); }
+    yy+=h+28;
+  });
+  // フッター
+  ctx.fillStyle=C.sub; ctx.font=`700 24px ${JP}`; ctx.textAlign="center"; ctx.fillText("IRON LOG ｜ 筋トレ記録",W/2,H-56);
+  return await new Promise(res=>cv.toBlob(res,"image/png"));
+}
+$("shotBtn").onclick=async()=>{
+  if(!(db.logs[curDate]||[]).length){ toast("この日の記録がありません"); return; }
+  $("shotBtn").disabled=true;
+  try{
+    shotBlob=await makeShot(curDate); shotName=`ironlog-${curDate}.png`;
+    if(shotUrl) URL.revokeObjectURL(shotUrl); shotUrl=URL.createObjectURL(shotBlob);
+    $("shotImg").src=shotUrl; $("shot").classList.remove("hidden");
+  }catch(e){ toast("画像を作れませんでした"); }
+  finally{ $("shotBtn").disabled=false; }
+};
+$("shotClose").onclick=()=>$("shot").classList.add("hidden");
+$("shotSave").onclick=async()=>{
+  if(!shotBlob) return;
+  // claude.ai 内：保存の確認画面から保存
+  const dl = window.claude && claude.use ? await claude.use("downloads") : null;
+  if(dl){ try{ await dl.save({filename:shotName, data:shotBlob}); toast("保存しました"); }catch(e){ if(e&&e.code!=="declined") toast("保存できませんでした。画像を長押しして保存してください"); } return; }
+  // スマホのブラウザ：共有メニュー（「画像を保存」で写真に入る）
+  try{
+    const file=new File([shotBlob],shotName,{type:"image/png"});
+    if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file]}); return; }
+  }catch(e){ if(e && e.name==="AbortError") return; }
+  const a=document.createElement("a"); a.href=shotUrl; a.download=shotName; a.click();
 };
 
 // アプリを閉じる・切り替えるときは、待たずにすぐ保存する
