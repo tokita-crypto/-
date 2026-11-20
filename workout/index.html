@@ -162,7 +162,10 @@ header{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;padding:10px 
 .dlg-box .btns{display:flex;gap:10px}
 .dlg-box .btns button{flex:1;padding:12px;border-radius:10px;background:var(--surface2);font-weight:700}
 .dlg-box .btns .ok{background:var(--danger);color:#fff}
-.toast{position:fixed;left:50%;bottom:120px;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--accent);color:var(--text);padding:10px 18px;border-radius:12px;font-size:14px;z-index:60}
+.toast{position:fixed;left:50%;bottom:120px;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--accent);color:var(--text);padding:10px 18px;border-radius:12px;font-size:14px;z-index:60;display:flex;align-items:center;gap:14px;max-width:calc(100vw - 32px);white-space:nowrap}
+.toast button{color:var(--accent);font-weight:900;font-size:14px;padding:4px 2px}
+.custom select{background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:0 8px;font-size:15px;color:var(--text)}
+.card.flash{box-shadow:0 0 0 2px var(--accent),0 0 18px rgba(255,106,19,.5);transition:box-shadow .3s}
 @media (prefers-reduced-motion:no-preference){ .day.done{transition:transform .15s} .day:active{transform:scale(.92)} }
 </style>
 </head>
@@ -237,6 +240,7 @@ header{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;padding:10px 
     <div class="ex-list" id="exList"></div>
     <div class="custom">
       <input id="customName" placeholder="この部位に種目を追加（例：ケーブルフライ）">
+      <select id="customUnit" aria-label="記録の単位"><option value="rep">回</option><option value="sec">秒</option></select>
       <button id="addCustom">追加</button>
     </div>
   </div>
@@ -259,8 +263,8 @@ let curDate = null;
 let curPart = "胸";
 
 function load(){
-  try{ const d = JSON.parse(localStorage.getItem(KEY)); if(d && d.logs) return d; }catch(e){}
-  return {logs:{}, custom:{}};
+  try{ const d = JSON.parse(localStorage.getItem(KEY)); if(d && d.logs){ d.custom=d.custom||{}; d.units=d.units||{}; return d; } }catch(e){}
+  return {logs:{}, custom:{}, units:{}};
 }
 /* クラウド保存（claude.ai で開いたとき）。各自のデータは本人だけが読める領域に保存 */
 let cloud=null, uid=null, pending=new Set(), saveTimer=null, lastSent={};
@@ -275,7 +279,7 @@ async function flush(){
   for(const k of keys){
     if(!k) continue;
     const ref=cloud.collection("data/users/"+uid).doc(k==="_custom"?"custom":"d-"+k);
-    const body = k==="_custom" ? {custom:db.custom} : {list:db.logs[k]||[]};
+    const body = k==="_custom" ? {custom:db.custom, units:db.units} : {list:db.logs[k]||[]};
     const js=JSON.stringify(body);
     if(lastSent[k]===js) continue;
     try{
@@ -309,12 +313,12 @@ async function initCloud(){
       // 初回：この端末にだけある記録をクラウドへ送る
       const remote=new Set(snap.docs.map(x=>x.id));
       Object.keys(db.logs).forEach(k=>{ if(!remote.has("d-"+k) && db.logs[k].length) pending.add(k); });
-      if(!remote.has("custom") && Object.keys(db.custom).length) pending.add("_custom");
+      if(!remote.has("custom") && (Object.keys(db.custom).length || Object.keys(db.units).length)) pending.add("_custom");
     }
     snap.docChanges().forEach(ch=>{
       if(ch.doc.metadata.hasPendingWrites) return;
       const id=ch.doc.id, data=ch.type==="removed"?null:ch.doc.data();
-      if(id==="custom"){ db.custom=data?JSON.parse(JSON.stringify(data.custom||{})):{}; lastSent["_custom"]=JSON.stringify({custom:db.custom}); }
+      if(id==="custom"){ db.custom=data?JSON.parse(JSON.stringify(data.custom||{})):{}; db.units=data?JSON.parse(JSON.stringify(data.units||{})):{}; lastSent["_custom"]=JSON.stringify({custom:db.custom, units:db.units}); }
       else if(id.startsWith("d-")){
         const k=id.slice(2);
         if(pending.has(k)) return;
@@ -332,16 +336,29 @@ const $ = id => document.getElementById(id);
 const pad = n => String(n).padStart(2,"0");
 const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
-const rm  = (w,r) => (w>0 && r>0) ? (r===1 ? w : w*(1+r/40)) : 0;   // 1RM推定
+const RM_MAX_REPS = 12;   // 13回以上は推定1RMを出さない（誤差が大きいため）
+const rm  = (w,r) => (w>0 && r>0 && r<=RM_MAX_REPS) ? (r===1 ? w : w*(1+r/40)) : 0;   // 1RM推定
+const TIME_EX = ["プランク","サイドプランク"];   // 秒で測る標準種目
+const isTime = name => TIME_EX.includes(name) || (db.units && db.units[name]==="sec");
 const fmt = n => (Math.round(n*100)/100).toLocaleString();
 function toast(t){ const el=document.createElement("div"); el.className="toast"; el.textContent=t; document.body.appendChild(el); setTimeout(()=>el.remove(),1600); }
+let undoEl=null;
+function undoToast(msg, undo){
+  if(undoEl) undoEl.remove();
+  const el=document.createElement("div"); el.className="toast";
+  const sp=document.createElement("span"); sp.textContent=msg;
+  const b=document.createElement("button"); b.textContent="元に戻す";
+  el.append(sp,b); document.body.appendChild(el); undoEl=el;
+  const t=setTimeout(()=>{ el.remove(); if(undoEl===el) undoEl=null; },5000);
+  b.onclick=()=>{ clearTimeout(t); el.remove(); undoEl=null; undo(); };
+}
 
 function dayTotals(list){
   let sets=0, reps=0, load=0;
-  (list||[]).forEach(ex=>ex.sets.forEach(s=>{
+  (list||[]).forEach(ex=>{ const time=isTime(ex.name); ex.sets.forEach(s=>{
     const w=num(s.w), r=num(s.r);
-    if(r>0){ sets++; reps+=r; load+=w*r; }
-  }));
+    if(r>0){ sets++; if(!time){ reps+=r; load+=w*r; } }   // 秒の種目はレップ・負荷に含めない
+  }); });
   return {ex:(list||[]).length, sets, reps, load};
 }
 const trained = date => (db.logs[date]||[]).length>0;
@@ -406,9 +423,10 @@ function renderDay(){
     box.innerHTML=`<div class="empty"><span class="big">NO LIFT YET</span>まだ種目がありません<br>右下の <b style="color:var(--accent)">＋</b> から種目を追加</div>`;
   }
   list.forEach((ex,i)=>{
-    const c=document.createElement("div"); c.className="card";
+    const c=document.createElement("div"); c.className="card"; c.dataset.idx=i;
     const prev=lastRecord(ex.name);
-    const prevTxt = prev ? `前回 ${prev.date.slice(5).replace("-","/")}：` + prev.ex.sets.filter(s=>num(s.r)>0).map(s=>`${num(s.w)}kg×${num(s.r)}`).join(" / ") : "";
+    const time=isTime(ex.name), ru=time?"秒":"回";
+    const prevTxt = prev ? `前回 ${prev.date.slice(5).replace("-","/")}：` + prev.ex.sets.filter(s=>num(s.r)>0).map(s=> time ? (num(s.w)>0?`${num(s.w)}kg×`:"")+`${num(s.r)}秒` : `${num(s.w)}kg×${num(s.r)}`).join(" / ") : "";
     const prevMemo = prev && prev.ex.memo ? prev.ex.memo : "";
     c.innerHTML=`
       <div class="card-h">
@@ -418,7 +436,7 @@ function renderDay(){
         <button data-a="delEx">✕</button>
       </div>
       ${prevTxt?`<div class="prev">${esc(prevTxt)}${prevMemo?`<span class="pm">前回メモ：${esc(prevMemo)}</span>`:""}</div>`:""}
-      <div class="cols"><span>セット</span><span style="text-align:right">重さ</span><span style="text-align:right">回数</span><span style="text-align:right">RM</span><span></span></div>
+      <div class="cols"><span>セット</span><span style="text-align:right">重さ</span><span style="text-align:right">${time?"秒数":"回数"}</span><span style="text-align:right">RM</span><span></span></div>
       <div class="rows"></div>
       <div class="add-set"><button data-a="addSet">＋ セットを追加</button></div>
       <textarea class="memo" rows="2" placeholder="メモ（例：3セット目は腰が反った／今日は調子が良かった）"></textarea>`;
@@ -431,13 +449,16 @@ function renderDay(){
       r.innerHTML=`
         <span class="no">${j+1}</span>
         <span class="w"><input inputmode="decimal" value="${s.w??""}" placeholder="${ph&&ph.w?ph.w:"0"}"><span class="u">kg</span></span>
-        <span class="r"><input inputmode="numeric" value="${s.r??""}" placeholder="${ph&&ph.r?ph.r:"0"}"><span class="u">回</span></span>
-        <span class="rm">${rm(num(s.w),num(s.r))?fmt(rm(num(s.w),num(s.r)))+"kg":"-"}</span>
+        <span class="r"><input inputmode="numeric" value="${s.r??""}" placeholder="${ph&&ph.r?ph.r:"0"}"><span class="u">${ru}</span></span>
+        <span class="rm">${!time&&rm(num(s.w),num(s.r))?fmt(rm(num(s.w),num(s.r)))+"kg":"-"}</span>
         <button class="del">🗑</button>`;
       const [wIn,rIn]=r.querySelectorAll("input");
-      const upd=()=>{ s.w=wIn.value; s.r=rIn.value; const v=rm(num(s.w),num(s.r)); r.querySelector(".rm").textContent=v?fmt(v)+"kg":"-"; save(); updateStats(); };
+      const upd=()=>{ s.w=wIn.value; s.r=rIn.value; const v=time?0:rm(num(s.w),num(s.r)); r.querySelector(".rm").textContent=v?fmt(v)+"kg":"-"; save(); updateStats(); };
       wIn.oninput=upd; rIn.oninput=upd;
-      r.querySelector(".del").onclick=()=>{ ex.sets.splice(j,1); save(); renderDay(); };
+      r.querySelector(".del").onclick=()=>{
+        const date=curDate, removed=ex.sets.splice(j,1)[0]; save(); renderDay();
+        undoToast(`セット${j+1}を削除しました`, ()=>{ ex.sets.splice(Math.min(j,ex.sets.length),0,removed); save(date); if(curDate===date) renderDay(); });
+      };
       rows.appendChild(r);
     });
     c.querySelector('[data-a="addSet"]').onclick=()=>{
@@ -445,7 +466,8 @@ function renderDay(){
       ex.sets.push({w:last?last.w:"", r:""}); save(); renderDay();
     };
     c.querySelector('[data-a="delEx"]').onclick=()=>{
-      ask(`「${ex.name}」を削除しますか？`).then(ok=>{ if(ok){ list.splice(i,1); save(); renderDay(); } });
+      const date=curDate; list.splice(i,1); save(); renderDay();
+      undoToast(`「${ex.name}」を削除しました`, ()=>{ const L=db.logs[date]||(db.logs[date]=[]); L.splice(Math.min(i,L.length),0,ex); save(date); if(curDate===date) renderDay(); });
     };
     c.querySelector('[data-a="up"]').onclick=()=>{ [list[i-1],list[i]]=[list[i],list[i-1]]; save(); renderDay(); };
     c.querySelector('[data-a="down"]').onclick=()=>{ [list[i+1],list[i]]=[list[i],list[i+1]]; save(); renderDay(); };
@@ -466,26 +488,32 @@ function sessionsOf(name){
   const out=[];
   Object.keys(db.logs).sort().forEach(date=>{
     db.logs[date].filter(e=>e.name===name).forEach(e=>{
+      const time=isTime(name);
       let best=0,maxW=0,maxR=0,vol=0,reps=0;
       e.sets.forEach(s=>{ const w=num(s.w), r=num(s.r); if(r<=0) return;
-        best=Math.max(best,rm(w,r)); maxW=Math.max(maxW,w); maxR=Math.max(maxR,r); vol+=w*r; reps+=r; });
+        if(!time){ best=Math.max(best,rm(w,r)); vol+=w*r; }   // rm() は重さ0・13回以上で0を返す
+        maxW=Math.max(maxW,w); maxR=Math.max(maxR,r); reps+=r; });
       if(reps>0 || e.memo) out.push({date,best,maxW,maxR,vol,reps,memo:e.memo||"",part:e.part});
     });
   });
   return out;
 }
 function growthOf(name){
-  const all=sessionsOf(name).filter(x=>x.reps>0);
+  const today=ymd(new Date()), time=isTime(name);
+  const all=sessionsOf(name).filter(x=>x.reps>0 && x.date<=today);   // 未来の日付は除外
   const start=periodStart();
-  const useW=all.some(x=>x.maxW>0);
+  const useW=!time && all.some(x=>x.maxW>0);
   const val=x=>useW?x.best:x.maxR;
-  const inP=all.filter(x=>x.date>=start);
-  const before=all.filter(x=>x.date<start);
+  // 1RMで評価する種目は、重さなしの日・13回以上だけの日（best=0）を評価から外す
+  const valid=useW ? all.filter(x=>x.best>0) : all;
+  const inAll=all.filter(x=>x.date>=start);
+  const inP=valid.filter(x=>x.date>=start);
+  const before=valid.filter(x=>x.date<start);
   const base = before.length ? before[before.length-1] : inP[0];
   const last = inP[inP.length-1];
   let pct=null;
   if(base && last && base!==last && val(base)>0) pct=(val(last)-val(base))/val(base)*100;
-  return {name,useW,val,inP,base,last,pct,part:(all[0]||{}).part||""};
+  return {name,useW,time,val,inP,inAll,base,last,pct,unit:useW?"kg":time?"秒":"回",part:(all[0]||{}).part||""};
 }
 function spark(vals,w,h){
   if(vals.length<2) return `<svg viewBox="0 0 ${w} ${h}"></svg>`;
@@ -539,30 +567,31 @@ function renderGrowth(){
   const body=$("gBody"); body.innerHTML="";
   if(gEx) return renderGrowthDetail(body);
   const names=[...new Set(Object.values(db.logs).flat().map(e=>e.name))];
-  const rows=names.map(growthOf).filter(g=>g.inP.length).sort((a,b)=>(b.pct??-1e9)-(a.pct??-1e9) || b.inP.length-a.inP.length);
+  const rows=names.map(growthOf).filter(g=>g.inAll.length).sort((a,b)=>(b.pct??-1e9)-(a.pct??-1e9) || b.inAll.length-a.inAll.length);
   if(!rows.length){ body.innerHTML=`<div class="empty"><span class="big">NO DATA</span>この期間の記録がありません</div>`; return; }
   const note=document.createElement("div"); note.className="g-note";
-  note.textContent="成長率＝期間の直前（なければ期間の最初）の記録と、最新の記録の推定1RMの比較。重量なしの種目は最大回数で比較。タップで詳細。";
+  note.textContent="成長率＝期間の直前（なければ期間の最初）の記録と、最新の記録の推定1RMの比較。推定1RMは重さあり・12回以下のセットで計算。重さなしの種目は最大回数、秒の種目は最大秒数で比較。今日より後の日付は含めない。タップで詳細。";
   body.appendChild(note);
   const list=document.createElement("div"); list.style.cssText="display:flex;flex-direction:column;gap:8px;margin-top:10px";
   rows.forEach(g=>{
     const b=document.createElement("button"); b.className="g-row";
-    const u=g.useW?"kg":"回";
-    const metric = g.base&&g.last&&g.base!==g.last ? `${g.useW?"1RM ":"最大 "}${fmt(g.val(g.base))}→${fmt(g.val(g.last))}${u}` : `${g.useW?"1RM ":"最大 "}${fmt(g.val(g.last))}${u}`;
-    b.innerHTML=`<span class="nm">${esc(g.name)}<span class="mt">${esc(metric)}・${g.inP.length}回</span></span>${spark(g.inP.map(g.val),84,30)}<span class="badge ${pctCls(g.pct)}">${pctTxt(g.pct)}</span>`;
+    const u=g.unit, pre=g.useW?"1RM ":"最大 ";
+    const metric = !g.last ? "評価できる記録なし" : g.base&&g.base!==g.last ? `${pre}${fmt(g.val(g.base))}→${fmt(g.val(g.last))}${u}` : `${pre}${fmt(g.val(g.last))}${u}`;
+    b.innerHTML=`<span class="nm">${esc(g.name)}<span class="mt">${esc(metric)}・${g.inAll.length}回</span></span>${spark(g.inP.map(g.val),84,30)}<span class="badge ${pctCls(g.pct)}">${pctTxt(g.pct)}</span>`;
     b.onclick=()=>{ gEx=g.name; renderGrowth(); window.scrollTo(0,0); };
     list.appendChild(b);
   });
   body.appendChild(list);
 }
 function renderGrowthDetail(body){
-  const g=growthOf(gEx), u=g.useW?"kg":"回";
+  const g=growthOf(gEx), u=g.unit, today=ymd(new Date());
   const allS=sessionsOf(gEx), start=periodStart();
-  const memos=allS.filter(x=>x.date>=start && x.memo).reverse();
+  const memos=allS.filter(x=>x.date>=start && x.date<=today && x.memo).reverse();
   const box=document.createElement("div"); box.className="g-detail";
   const pts=g.inP.map(x=>({d:x.date,v:g.val(x)}));
-  const best=Math.max(0,...g.inP.map(g.val)), maxW=Math.max(0,...g.inP.map(x=>x.maxW));
-  const vol=g.inP.reduce((a,x)=>a+x.vol,0), reps=g.inP.reduce((a,x)=>a+x.reps,0);
+  const best=Math.max(0,...g.inP.map(g.val)), maxW=Math.max(0,...g.inAll.map(x=>x.maxW));
+  const vol=g.inAll.reduce((a,x)=>a+x.vol,0), reps=g.inAll.reduce((a,x)=>a+x.reps,0);
+  const mLabel=g.useW?"推定1RM":g.time?"最大秒数":"最大回数";
   // 月別
   const months={}; g.inP.forEach(x=>{ const m=x.date.slice(0,7); months[m]=Math.max(months[m]||0,g.val(x)); });
   const mk=Object.keys(months).sort(), mMax=Math.max(1,...Object.values(months));
@@ -570,13 +599,13 @@ function renderGrowthDetail(body){
     <h2>${esc(gEx)}</h2>
     <div class="lead"><b class="badge ${pctCls(g.pct)}" style="font-size:44px">${pctTxt(g.pct)}</b>
       <span>${g.base&&g.last&&g.base!==g.last?`${g.base.date.replace(/-/g,"/")} ${fmt(g.val(g.base))}${u} → ${g.last.date.replace(/-/g,"/")} ${fmt(g.val(g.last))}${u}`:"比較できる記録が2回以上になると成長率が出ます"}</span></div>
-    <div class="g-sec">${g.useW?"推定1RMの推移":"最大回数の推移"}</div>
+    <div class="g-sec">${mLabel}の推移</div>
     <div class="g-chart">${pts.length?bigChart(pts,u):`<div class="g-note">この期間の記録がありません</div>`}</div>
     <div class="g-tiles">
-      <div>${g.useW?"最高 推定1RM":"最大回数"}<b>${fmt(best)}${u}</b></div>
-      ${g.useW?`<div>最大重量<b>${fmt(maxW)}kg</b></div>`:`<div>合計レップ<b>${fmt(reps)}</b></div>`}
-      ${g.useW?`<div>合計負荷<b>${fmt(vol)}kg</b></div>`:`<div>1回の平均レップ<b>${fmt(reps/Math.max(1,g.inP.length))}</b></div>`}
-      <div>実施回数<b>${g.inP.length}回</b></div>
+      <div>${g.useW?"最高 推定1RM":mLabel}<b>${fmt(best)}${u}</b></div>
+      ${g.useW?`<div>最大重量<b>${fmt(maxW)}kg</b></div>`:`<div>${g.time?"合計秒数":"合計レップ"}<b>${fmt(reps)}</b></div>`}
+      ${g.useW?`<div>合計負荷<b>${fmt(vol)}kg</b></div>`:`<div>${g.time?"1回の平均秒数":"1回の平均レップ"}<b>${fmt(reps/Math.max(1,g.inAll.length))}</b></div>`}
+      <div>実施回数<b>${g.inAll.length}回</b></div>
     </div>
     ${mk.length>1?`<div class="g-sec">月別ベスト</div><div>${mk.map(m=>`<div class="g-month"><span>${m.slice(2).replace("-","/")}</span><div class="bar2" style="width:${(months[m]/mMax*100).toFixed(0)}%"></div><b>${fmt(months[m])}${u}</b></div>`).join("")}</div>`:""}
     <div class="g-sec">メモ（${memos.length}件）</div>
@@ -604,7 +633,7 @@ function renderExList(){
   const custom=db.custom[curPart]||[];
   [...custom.map(n=>({n,c:true})), ...PARTS[curPart].map(n=>({n,c:false}))].forEach(({n,c})=>{
     const row=document.createElement("div"); row.className="ex";
-    row.innerHTML=`<button class="pick">${esc(n)}${c?'<span class="tag">マイ種目</span>':""}</button>${c?'<button class="rm-ex">🗑</button>':""}`;
+    row.innerHTML=`<button class="pick">${esc(n)}${c?'<span class="tag">マイ種目</span>':""}${isTime(n)?'<span class="tag">秒</span>':""}</button>${c?'<button class="rm-ex">🗑</button>':""}`;
     row.querySelector(".pick").onclick=()=>addExercise(n);
     if(c) row.querySelector(".rm-ex").onclick=()=>{
       ask(`マイ種目「${n}」を一覧から削除しますか？（過去の記録は残ります）`).then(ok=>{ if(ok){
@@ -618,10 +647,19 @@ $("addCustom").onclick=()=>{
   const n=$("customName").value.trim(); if(!n) return;
   db.custom[curPart]=db.custom[curPart]||[];
   if(db.custom[curPart].includes(n)||PARTS[curPart].includes(n)){ toast("すでにあります"); return; }
-  db.custom[curPart].unshift(n); save("_custom"); $("customName").value=""; renderExList(); toast(`「${n}」を追加しました`);
+  db.custom[curPart].unshift(n);
+  db.units=db.units||{}; if($("customUnit").value==="sec") db.units[n]="sec"; else delete db.units[n];
+  save("_custom"); $("customName").value=""; $("customUnit").value="rep"; renderExList(); toast(`「${n}」を追加しました`);
 };
 function addExercise(name){
   db.logs[curDate]=db.logs[curDate]||[];
+  const exist=db.logs[curDate].findIndex(e=>e.name===name);
+  if(exist>=0){   // 同じ日に同じ種目は追加せず、そのカードへ移動
+    $("modal").classList.add("hidden");
+    const card=document.querySelector(`.card[data-idx="${exist}"]`);
+    if(card){ card.scrollIntoView({behavior:"smooth",block:"center"}); card.classList.add("flash"); setTimeout(()=>card.classList.remove("flash"),1500); }
+    toast("この種目は追加済みです"); return;
+  }
   const prev=lastRecord(name);
   const sets=[0,1,2].map(i=>({w: prev&&prev.ex.sets[i]?prev.ex.sets[i].w:"", r:""}));
   db.logs[curDate].push({name, part:curPart, sets});
@@ -630,19 +668,23 @@ function addExercise(name){
 }
 
 /* ---------- バックアップ ---------- */
-$("exportBtn").onclick=async()=>{
-  const json=JSON.stringify(db,null,1), name=`kintore-backup-${ymd(new Date())}.json`;
+async function exportBackup(name){
+  const json=JSON.stringify(db,null,1);
   const dl = window.claude && claude.use ? await claude.use("downloads") : null;
-  if(dl){ try{ await dl.save({filename:name, data:json}); }catch(e){} return; }
+  if(dl){ try{ await dl.save({filename:name, data:json}); return true; }catch(e){ return false; } }
   const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([json],{type:"application/json"}));
-  a.download=name; a.click();
-};
+  a.download=name; a.click(); return true;
+}
+$("exportBtn").onclick=()=>exportBackup(`kintore-backup-${ymd(new Date())}.json`);
 $("importFile").onchange=e=>{
   const f=e.target.files[0]; if(!f) return;
   f.text().then(t=>{
     try{ const d=JSON.parse(t); if(!d.logs) throw 0;
-      ask("現在のデータを置き換えて読み込みますか？").then(ok=>{ if(!ok) return;
-        const old=Object.keys(db.logs); db={logs:d.logs, custom:d.custom||{}};
+      ask("現在のデータを置き換えて読み込みますか？（読み込む前に、今のデータを自動でバックアップ保存します）").then(async ok=>{ if(!ok) return;
+        try{ localStorage.setItem(KEY+"-before-import", JSON.stringify(db)); }catch(_){}
+        const saved=await exportBackup(`kintore-backup-before-import-${ymd(new Date())}.json`);
+        if(!saved) toast("自動バックアップのファイル保存はされませんでした（端末内には控えを保存済み）");
+        const old=Object.keys(db.logs); db={logs:d.logs, custom:d.custom||{}, units:d.units||{}};
         new Set([...old,...Object.keys(db.logs)]).forEach(k=>save(k)); save("_custom");
         renderCal(); toast("読み込みました"); });
     }catch(_){ toast("ファイルが正しくありません"); }
