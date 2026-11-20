@@ -259,7 +259,7 @@ function load(){
   return {logs:{}, custom:{}, units:{}};
 }
 /* クラウド保存（claude.ai で開いたとき）。各自のデータは本人だけが読める領域に保存 */
-let cloud=null, uid=null, pending=new Set(), saveTimer=null, lastSent={};
+let cloud=null, uid=null, pending=new Set(), saveTimer=null, lastSent={}, inflight={}, needRender=false;
 function save(dateKey){
   try{ localStorage.setItem(KEY, JSON.stringify(db)); }catch(e){}
   if(!cloud) return;
@@ -274,10 +274,12 @@ async function flush(){
     const body = k==="_custom" ? {custom:db.custom, units:db.units} : {list:db.logs[k]||[]};
     const js=JSON.stringify(body);
     if(lastSent[k]===js) continue;
+    inflight[k]=(inflight[k]||0)+1;
     try{
       if(k!=="_custom" && !(db.logs[k]||[]).length) await ref.delete(); else await ref.set(body);
       lastSent[k]=js;
     }catch(e){ toast("クラウド保存に失敗しました"); pending.add(k); }
+    finally{ inflight[k]--; }
   }
 }
 function ask(msg){
@@ -300,6 +302,7 @@ async function initCloud(){
     if(snap.metadata.fromCache && first) return;
     clearTimeout(timer);
     $("syncNote").textContent="☁ クラウドに自動保存されます";
+    const isFirst=first;
     if(first){
       first=false;
       // 初回：この端末にだけある記録をクラウドへ送る
@@ -307,21 +310,38 @@ async function initCloud(){
       Object.keys(db.logs).forEach(k=>{ if(!remote.has("d-"+k) && db.logs[k].length) pending.add(k); });
       if(!remote.has("custom") && (Object.keys(db.custom).length || Object.keys(db.units).length)) pending.add("_custom");
     }
-    snap.docChanges().forEach(ch=>{
+    // 自分の書き込み中・書き込み待ちのデータは上書きしない（入力した値が消えるのを防ぐ）
+    const busy=k=>pending.has(k) || inflight[k]>0;
+    const changes = isFirst ? snap.docs.map(d=>({type:"added",doc:d})) : snap.docChanges();
+    let curChanged=false;
+    changes.forEach(ch=>{
       if(ch.doc.metadata.hasPendingWrites) return;
       const id=ch.doc.id, data=ch.type==="removed"?null:ch.doc.data();
-      if(id==="custom"){ db.custom=data?JSON.parse(JSON.stringify(data.custom||{})):{}; db.units=data?JSON.parse(JSON.stringify(data.units||{})):{}; lastSent["_custom"]=JSON.stringify({custom:db.custom, units:db.units}); }
+      if(id==="custom"){
+        if(busy("_custom")) return;
+        const next={custom:JSON.parse(JSON.stringify((data&&data.custom)||{})), units:JSON.parse(JSON.stringify((data&&data.units)||{}))};
+        const js=JSON.stringify(next); lastSent["_custom"]=js;
+        if(js!==JSON.stringify({custom:db.custom, units:db.units})){ db.custom=next.custom; db.units=next.units; }
+      }
       else if(id.startsWith("d-")){
         const k=id.slice(2);
-        if(pending.has(k)) return;
-        if(data){ db.logs[k]=JSON.parse(JSON.stringify(data.list||[])); lastSent[k]=JSON.stringify({list:db.logs[k]}); }
-        else delete db.logs[k];
+        if(busy(k)) return;
+        if(data){
+          const list=JSON.parse(JSON.stringify(data.list||[])), js=JSON.stringify({list});
+          lastSent[k]=js;
+          if(js===JSON.stringify({list:db.logs[k]||[]})) return;   // 中身が同じなら置き換えない
+          db.logs[k]=list;
+        } else { if(!db.logs[k]) return; delete db.logs[k]; }
+        if(k===curDate) curChanged=true;
       }
     });
     try{ localStorage.setItem(KEY, JSON.stringify(db)); }catch(e){}
     if(pending.size){ clearTimeout(saveTimer); saveTimer=setTimeout(flush,300); }
     if(!$("home").classList.contains("hidden")) renderCal();
-    else if(!document.activeElement || !["INPUT","TEXTAREA"].includes(document.activeElement.tagName)) renderDay();
+    else if(!$("dayView").classList.contains("hidden") && curChanged){
+      if(document.activeElement && ["INPUT","TEXTAREA"].includes(document.activeElement.tagName)) needRender=true;   // 入力中は描き直さない
+      else renderDay();
+    }
   }, e=>{ clearTimeout(timer); $("syncNote").textContent="クラウドに接続できません（この端末に一時保存中）"; });
 }
 const $ = id => document.getElementById(id);
@@ -438,8 +458,9 @@ function renderDay(){
       <div class="rows"></div>
       <div class="add-set"><button data-a="addSet">＋ セットを追加</button></div>
       <textarea class="memo" rows="2" placeholder="メモ（例：3セット目は腰が反った／今日は調子が良かった）"></textarea>`;
+    const exNow=()=>(db.logs[curDate]||[])[i];   // 同期で配列が入れ替わっても、常に今のデータに書き込む
     const memo=c.querySelector(".memo"); memo.value=ex.memo||"";
-    memo.oninput=()=>{ ex.memo=memo.value; save(); };
+    memo.oninput=()=>{ const e=exNow(); if(!e) return; e.memo=memo.value; save(); };
     const rows=c.querySelector(".rows");
     ex.sets.forEach((s,j)=>{
       const r=document.createElement("div"); r.className="row";
@@ -451,24 +472,26 @@ function renderDay(){
         <span class="rm">${!time&&rm(num(s.w),num(s.r))?fmt(rm(num(s.w),num(s.r)))+"kg":"-"}</span>
         <button class="del">🗑</button>`;
       const [wIn,rIn]=r.querySelectorAll("input");
-      const upd=()=>{ s.w=wIn.value; s.r=rIn.value; const v=time?0:rm(num(s.w),num(s.r)); r.querySelector(".rm").textContent=v?fmt(v)+"kg":"-"; save(); updateStats(); };
+      const upd=()=>{ const e=exNow(), st=e&&e.sets[j]; if(!st) return; st.w=wIn.value; st.r=rIn.value; const v=time?0:rm(num(s.w),num(s.r)); r.querySelector(".rm").textContent=v?fmt(v)+"kg":"-"; save(); updateStats(); };
       wIn.oninput=upd; rIn.oninput=upd;
       r.querySelector(".del").onclick=()=>{
-        const date=curDate, removed=ex.sets.splice(j,1)[0]; save(); renderDay();
-        undoToast(`セット${j+1}を削除しました`, ()=>{ ex.sets.splice(Math.min(j,ex.sets.length),0,removed); save(date); if(curDate===date) renderDay(); });
+        const date=curDate, e=exNow(); if(!e) return; const removed=e.sets.splice(j,1)[0]; save(); renderDay();
+        undoToast(`セット${j+1}を削除しました`, ()=>{ const e2=(db.logs[date]||[]).find(x=>x.name===e.name)||e; e2.sets.splice(Math.min(j,e2.sets.length),0,removed); save(date); if(curDate===date) renderDay(); });
       };
       rows.appendChild(r);
     });
     c.querySelector('[data-a="addSet"]').onclick=()=>{
-      const last=ex.sets[ex.sets.length-1];
-      ex.sets.push({w:last?last.w:"", r:""}); save(); renderDay();
+      const e=exNow(); if(!e) return;
+      const last=e.sets[e.sets.length-1];
+      e.sets.push({w:last?last.w:"", r:""}); save(); renderDay();
     };
     c.querySelector('[data-a="delEx"]').onclick=()=>{
-      const date=curDate; list.splice(i,1); save(); renderDay();
+      const date=curDate, L0=db.logs[date]||[]; const exR=L0.splice(i,1)[0]; if(!exR) return; save(); renderDay();
+      const ex=exR;
       undoToast(`「${ex.name}」を削除しました`, ()=>{ const L=db.logs[date]||(db.logs[date]=[]); L.splice(Math.min(i,L.length),0,ex); save(date); if(curDate===date) renderDay(); });
     };
-    c.querySelector('[data-a="up"]').onclick=()=>{ [list[i-1],list[i]]=[list[i],list[i-1]]; save(); renderDay(); };
-    c.querySelector('[data-a="down"]').onclick=()=>{ [list[i+1],list[i]]=[list[i],list[i+1]]; save(); renderDay(); };
+    c.querySelector('[data-a="up"]').onclick=()=>{ const L=db.logs[curDate]; if(!L||i<1) return; [L[i-1],L[i]]=[L[i],L[i-1]]; save(); renderDay(); };
+    c.querySelector('[data-a="down"]').onclick=()=>{ const L=db.logs[curDate]; if(!L||i>=L.length-1) return; [L[i+1],L[i]]=[L[i],L[i+1]]; save(); renderDay(); };
     box.appendChild(c);
   });
   updateStats();
@@ -690,6 +713,15 @@ $("importFile").onchange=e=>{
   e.target.value="";
 };
 
+// アプリを閉じる・切り替えるときは、待たずにすぐ保存する
+function flushNow(){ if(cloud && pending.size){ clearTimeout(saveTimer); flush(); } }
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden") flushNow(); });
+window.addEventListener("pagehide",flushNow);
+document.addEventListener("focusout",()=>setTimeout(()=>{
+  if(!needRender) return;
+  const a=document.activeElement; if(a && ["INPUT","TEXTAREA"].includes(a.tagName)) return;
+  needRender=false; if(!$("dayView").classList.contains("hidden")) renderDay();
+},0));
 renderCal();
 initCloud();
 // フォントは表示をブロックしないよう後から読み込む（読めなくても標準フォントで表示）
