@@ -5,7 +5,7 @@
 /* Iron & fire: 鋼のダーク地に溶鉄オレンジ。数字は角ばった縦長書体でスコアボード風 */
 :root{
   --bg:#111214; --surface:#1b1c20; --surface2:#24262b; --line:#32343a;
-  --text:#f3f1ee; --sub:#8c8e96; --accent:#ff6a13; --accent2:#ffb020; --danger:#ff4d4d;
+  --text:#f3f1ee; --sub:#8c8e96; --accent:#ff6a13; --accent2:#ffb020; --danger:#ff4d4d; --up:#3ddc84;
   --num:"Bebas Neue","Oswald",Impact,sans-serif;
   --jp:"Noto Sans JP","Hiragino Sans",-apple-system,sans-serif;
   color-scheme:dark;
@@ -88,6 +88,39 @@ header{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;padding:10px 
 .add-set{padding:10px 12px 12px}
 .add-set button{width:100%;padding:10px;border:1px dashed #4a4c53;border-radius:10px;color:var(--accent);font-weight:700;font-size:14px}
 .prev{font-size:11px;color:var(--sub);padding:6px 14px 0}
+.memo{display:block;width:calc(100% - 24px);margin:0 12px 12px;min-height:44px;resize:vertical;background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:9px 10px;font-size:14px;line-height:1.5;color:var(--text)}
+.memo:focus{outline:none;border-color:var(--accent)}
+.memo::placeholder{color:#5c5e66}
+.prev .pm{display:block;color:#b9a28f;margin-top:2px}
+.sub-btn{display:block;width:calc(100% - 28px);margin:-6px 14px 18px;padding:14px;border-radius:14px;font-size:15px;font-weight:900;color:var(--accent);background:var(--surface);border:1px solid var(--accent)}
+/* growth */
+#growthView .wrap{padding:14px 14px 40px;display:flex;flex-direction:column;gap:12px}
+.seg{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px}
+.seg button{padding:9px 0;border-radius:9px;font-weight:700;font-size:13px;color:#c9cad0}
+.seg button.on{background:linear-gradient(180deg,var(--accent2),var(--accent));color:#1a0d04}
+.g-note{font-size:11px;color:var(--sub);line-height:1.6}
+.g-row{display:grid;grid-template-columns:1fr 84px 66px;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;text-align:left;width:100%}
+.g-row .nm{font-weight:900;font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.g-row .mt{display:block;font-size:11px;color:var(--sub);font-weight:500;margin-top:2px}
+.g-row svg{width:84px;height:30px;display:block}
+.badge{font-family:var(--num);font-size:22px;text-align:right;color:var(--sub)}
+.badge.up{color:var(--up)} .badge.down{color:var(--danger)}
+.g-detail{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.g-detail h2{margin:0;font-size:18px;font-weight:900}
+.g-detail .lead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.g-detail .lead b{font-family:var(--num);font-weight:400;font-size:44px;line-height:1}
+.g-detail .lead span{font-size:12px;color:var(--sub)}
+.g-chart svg{width:100%;height:auto;display:block}
+.g-tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.g-tiles div{background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:8px 10px;font-size:11px;color:var(--sub);font-weight:700}
+.g-tiles b{display:block;font-family:var(--num);font-weight:400;font-size:26px;color:var(--text);font-variant-numeric:tabular-nums}
+.g-sec{font-size:12px;font-weight:900;color:var(--sub);letter-spacing:.08em;margin-top:4px}
+.g-month{display:grid;grid-template-columns:60px 1fr 70px;gap:8px;align-items:center;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line)}
+.g-month .bar2{height:8px;border-radius:4px;background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.g-month b{font-family:var(--num);font-weight:400;font-size:18px;text-align:right}
+.g-memo{background:var(--surface2);border-radius:10px;padding:9px 11px;font-size:13px;line-height:1.6}
+.g-memo small{display:block;color:var(--accent2);font-weight:700;font-size:11px}
+.g-back{align-self:flex-start;color:var(--accent);font-weight:700;font-size:14px;padding:4px 0}
 .empty{text-align:center;color:var(--sub);margin-top:70px;line-height:1.9}
 .empty .big{font-family:var(--num);font-size:44px;color:#3a3c42;letter-spacing:3px;display:block}
 
@@ -141,6 +174,7 @@ header{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;padding:10px 
     <div>今月の負荷(kg)<b id="mLoad">0</b></div>
   </div>
   <button class="big-btn" id="todayBtn">＋ 今日のトレーニングを追加</button>
+  <button class="sub-btn" id="growthBtn">成長グラフを見る</button>
   <div class="sync" id="syncNote"></div>
   <div class="tools">
     <button id="exportBtn">バックアップ保存</button>
@@ -165,6 +199,21 @@ header{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;padding:10px 
   </header>
   <div id="list"></div>
   <button class="fab" id="fab">＋</button>
+</section>
+
+<!-- ===== 成長グラフ画面 ===== -->
+<section id="growthView" class="hidden">
+  <header>
+    <div class="bar">
+      <button class="pill" id="gBack">‹</button>
+      <h1>GROWTH</h1>
+      <span style="width:44px"></span>
+    </div>
+  </header>
+  <div class="wrap">
+    <div class="seg" id="gSeg"></div>
+    <div id="gBody"></div>
+  </div>
 </section>
 
 <!-- ===== 種目選択 ===== -->
@@ -264,7 +313,7 @@ async function initCloud(){
     try{ localStorage.setItem(KEY, JSON.stringify(db)); }catch(e){}
     if(pending.size){ clearTimeout(saveTimer); saveTimer=setTimeout(flush,300); }
     if(!$("home").classList.contains("hidden")) renderCal();
-    else if(!document.activeElement || document.activeElement.tagName!=="INPUT") renderDay();
+    else if(!document.activeElement || !["INPUT","TEXTAREA"].includes(document.activeElement.tagName)) renderDay();
   }, e=>{ clearTimeout(timer); $("syncNote").textContent="クラウドに接続できません（この端末に一時保存中）"; });
 }
 const $ = id => document.getElementById(id);
@@ -348,6 +397,7 @@ function renderDay(){
     const c=document.createElement("div"); c.className="card";
     const prev=lastRecord(ex.name);
     const prevTxt = prev ? `前回 ${prev.date.slice(5).replace("-","/")}：` + prev.ex.sets.filter(s=>num(s.r)>0).map(s=>`${num(s.w)}kg×${num(s.r)}`).join(" / ") : "";
+    const prevMemo = prev && prev.ex.memo ? prev.ex.memo : "";
     c.innerHTML=`
       <div class="card-h">
         <span class="name">${esc(ex.name)}</span><span class="part">${esc(ex.part||"")}</span>
@@ -355,10 +405,13 @@ function renderDay(){
         <button data-a="down" ${i===list.length-1?"disabled":""}>▼</button>
         <button data-a="delEx">✕</button>
       </div>
-      ${prevTxt?`<div class="prev">${esc(prevTxt)}</div>`:""}
+      ${prevTxt?`<div class="prev">${esc(prevTxt)}${prevMemo?`<span class="pm">前回メモ：${esc(prevMemo)}</span>`:""}</div>`:""}
       <div class="cols"><span>セット</span><span style="text-align:right">重さ</span><span style="text-align:right">回数</span><span style="text-align:right">RM</span><span></span></div>
       <div class="rows"></div>
-      <div class="add-set"><button data-a="addSet">＋ セットを追加</button></div>`;
+      <div class="add-set"><button data-a="addSet">＋ セットを追加</button></div>
+      <textarea class="memo" rows="2" placeholder="メモ（例：3セット目は腰が反った／今日は調子が良かった）"></textarea>`;
+    const memo=c.querySelector(".memo"); memo.value=ex.memo||"";
+    memo.oninput=()=>{ ex.memo=memo.value; save(); };
     const rows=c.querySelector(".rows");
     ex.sets.forEach((s,j)=>{
       const r=document.createElement("div"); r.className="row";
@@ -389,6 +442,137 @@ function renderDay(){
   updateStats();
 }
 function esc(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ---------- 成長グラフ ---------- */
+const PERIODS=[["1m","1ヶ月",1],["3m","3ヶ月",3],["1y","1年",12],["all","全期間",0]];
+let gPeriod="1m", gEx=null;
+function periodStart(){
+  const p=PERIODS.find(x=>x[0]===gPeriod); if(!p[2]) return "0000-00-00";
+  const d=new Date(); d.setMonth(d.getMonth()-p[2]); return ymd(d);
+}
+function sessionsOf(name){
+  const out=[];
+  Object.keys(db.logs).sort().forEach(date=>{
+    db.logs[date].filter(e=>e.name===name).forEach(e=>{
+      let best=0,maxW=0,maxR=0,vol=0,reps=0;
+      e.sets.forEach(s=>{ const w=num(s.w), r=num(s.r); if(r<=0) return;
+        best=Math.max(best,rm(w,r)); maxW=Math.max(maxW,w); maxR=Math.max(maxR,r); vol+=w*r; reps+=r; });
+      if(reps>0 || e.memo) out.push({date,best,maxW,maxR,vol,reps,memo:e.memo||"",part:e.part});
+    });
+  });
+  return out;
+}
+function growthOf(name){
+  const all=sessionsOf(name).filter(x=>x.reps>0);
+  const start=periodStart();
+  const useW=all.some(x=>x.maxW>0);
+  const val=x=>useW?x.best:x.maxR;
+  const inP=all.filter(x=>x.date>=start);
+  const before=all.filter(x=>x.date<start);
+  const base = before.length ? before[before.length-1] : inP[0];
+  const last = inP[inP.length-1];
+  let pct=null;
+  if(base && last && base!==last && val(base)>0) pct=(val(last)-val(base))/val(base)*100;
+  return {name,useW,val,inP,base,last,pct,part:(all[0]||{}).part||""};
+}
+function spark(vals,w,h){
+  if(vals.length<2) return `<svg viewBox="0 0 ${w} ${h}"></svg>`;
+  const mn=Math.min(...vals), mx=Math.max(...vals), rg=mx-mn||1;
+  const pts=vals.map((v,i)=>[i/(vals.length-1)*(w-4)+2, h-3-(v-mn)/rg*(h-6)]);
+  const d=pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
+  const e=pts[pts.length-1];
+  return `<svg viewBox="0 0 ${w} ${h}"><path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${e[0]}" cy="${e[1]}" r="2.8" fill="var(--accent2)"/></svg>`;
+}
+function bigChart(pts,unit){
+  const W=340,H=190,L=38,R=10,T=14,B=26;
+  if(!pts.length) return "";
+  const vals=pts.map(p=>p.v);
+  let mn=Math.min(...vals), mx=Math.max(...vals);
+  if(mn===mx){ mn-=5; mx+=5; } const pad=(mx-mn)*.12; mn=Math.max(0,mn-pad); mx+=pad;
+  const t0=new Date(pts[0].d).getTime(), t1=new Date(pts[pts.length-1].d).getTime(), tr=t1-t0||1;
+  const X=d=> pts.length===1 ? L+(W-L-R)/2 : L+(new Date(d).getTime()-t0)/tr*(W-L-R);
+  const Y=v=> T+(1-(v-mn)/(mx-mn))*(H-T-B);
+  let g="";
+  for(let i=0;i<=3;i++){ const v=mn+(mx-mn)*i/3, y=Y(v);
+    g+=`<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="var(--line)" stroke-width="1"/><text x="${L-6}" y="${y+4}" text-anchor="end" font-size="10" fill="var(--sub)">${Math.round(v)}</text>`; }
+  const xy=pts.map(p=>[X(p.d),Y(p.v)]);
+  const line=xy.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
+  const area=line+` L${xy[xy.length-1][0].toFixed(1)} ${H-B} L${xy[0][0].toFixed(1)} ${H-B} Z`;
+  const dots=xy.map((p,i)=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${i===xy.length-1?5:3}" fill="${i===xy.length-1?"var(--accent2)":"var(--accent)"}" ${i===xy.length-1?'stroke="var(--bg)" stroke-width="2"':""}/>`).join("");
+  const lab=d=>d.slice(5).replace("-","/");
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="推移グラフ">
+    <defs><linearGradient id="ga" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".35"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+    ${g}<text x="${L+4}" y="${T-3}" font-size="9" fill="var(--sub)">(${unit})</text>
+    ${pts.length>1?`<path d="${area}" fill="url(#ga)"/><path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>`:""}
+    ${dots}
+    <text x="${L}" y="${H-8}" font-size="10" fill="var(--sub)">${lab(pts[0].d)}</text>
+    <text x="${W-R}" y="${H-8}" text-anchor="end" font-size="10" fill="var(--sub)">${lab(pts[pts.length-1].d)}</text>
+  </svg>`;
+}
+const pctTxt=p=> p===null ? "—" : (p>=0?"+":"")+p.toFixed(1)+"%";
+const pctCls=p=> p===null ? "" : p>0 ? "up" : p<0 ? "down" : "";
+function openGrowth(){
+  $("home").classList.add("hidden"); $("growthView").classList.remove("hidden");
+  gEx=null; window.scrollTo(0,0); renderGrowth();
+}
+$("growthBtn").onclick=openGrowth;
+$("gBack").onclick=()=>{
+  if(gEx){ gEx=null; renderGrowth(); window.scrollTo(0,0); return; }
+  $("growthView").classList.add("hidden"); $("home").classList.remove("hidden"); renderCal();
+};
+function renderGrowth(){
+  const seg=$("gSeg"); seg.innerHTML="";
+  PERIODS.forEach(([k,label])=>{ const b=document.createElement("button"); b.textContent=label; if(k===gPeriod) b.className="on";
+    b.onclick=()=>{ gPeriod=k; renderGrowth(); }; seg.appendChild(b); });
+  const body=$("gBody"); body.innerHTML="";
+  if(gEx) return renderGrowthDetail(body);
+  const names=[...new Set(Object.values(db.logs).flat().map(e=>e.name))];
+  const rows=names.map(growthOf).filter(g=>g.inP.length).sort((a,b)=>(b.pct??-1e9)-(a.pct??-1e9) || b.inP.length-a.inP.length);
+  if(!rows.length){ body.innerHTML=`<div class="empty"><span class="big">NO DATA</span>この期間の記録がありません</div>`; return; }
+  const note=document.createElement("div"); note.className="g-note";
+  note.textContent="成長率＝期間の直前（なければ期間の最初）の記録と、最新の記録の推定1RMの比較。重量なしの種目は最大回数で比較。タップで詳細。";
+  body.appendChild(note);
+  const list=document.createElement("div"); list.style.cssText="display:flex;flex-direction:column;gap:8px;margin-top:10px";
+  rows.forEach(g=>{
+    const b=document.createElement("button"); b.className="g-row";
+    const u=g.useW?"kg":"回";
+    const metric = g.base&&g.last&&g.base!==g.last ? `${g.useW?"1RM ":"最大 "}${fmt(g.val(g.base))}→${fmt(g.val(g.last))}${u}` : `${g.useW?"1RM ":"最大 "}${fmt(g.val(g.last))}${u}`;
+    b.innerHTML=`<span class="nm">${esc(g.name)}<span class="mt">${esc(metric)}・${g.inP.length}回</span></span>${spark(g.inP.map(g.val),84,30)}<span class="badge ${pctCls(g.pct)}">${pctTxt(g.pct)}</span>`;
+    b.onclick=()=>{ gEx=g.name; renderGrowth(); window.scrollTo(0,0); };
+    list.appendChild(b);
+  });
+  body.appendChild(list);
+}
+function renderGrowthDetail(body){
+  const g=growthOf(gEx), u=g.useW?"kg":"回";
+  const allS=sessionsOf(gEx), start=periodStart();
+  const memos=allS.filter(x=>x.date>=start && x.memo).reverse();
+  const box=document.createElement("div"); box.className="g-detail";
+  const pts=g.inP.map(x=>({d:x.date,v:g.val(x)}));
+  const best=Math.max(0,...g.inP.map(g.val)), maxW=Math.max(0,...g.inP.map(x=>x.maxW));
+  const vol=g.inP.reduce((a,x)=>a+x.vol,0), reps=g.inP.reduce((a,x)=>a+x.reps,0);
+  // 月別
+  const months={}; g.inP.forEach(x=>{ const m=x.date.slice(0,7); months[m]=Math.max(months[m]||0,g.val(x)); });
+  const mk=Object.keys(months).sort(), mMax=Math.max(1,...Object.values(months));
+  box.innerHTML=`
+    <h2>${esc(gEx)}</h2>
+    <div class="lead"><b class="badge ${pctCls(g.pct)}" style="font-size:44px">${pctTxt(g.pct)}</b>
+      <span>${g.base&&g.last&&g.base!==g.last?`${g.base.date.replace(/-/g,"/")} ${fmt(g.val(g.base))}${u} → ${g.last.date.replace(/-/g,"/")} ${fmt(g.val(g.last))}${u}`:"比較できる記録が2回以上になると成長率が出ます"}</span></div>
+    <div class="g-sec">${g.useW?"推定1RMの推移":"最大回数の推移"}</div>
+    <div class="g-chart">${pts.length?bigChart(pts,u):`<div class="g-note">この期間の記録がありません</div>`}</div>
+    <div class="g-tiles">
+      <div>${g.useW?"最高 推定1RM":"最大回数"}<b>${fmt(best)}${u}</b></div>
+      ${g.useW?`<div>最大重量<b>${fmt(maxW)}kg</b></div>`:`<div>合計レップ<b>${fmt(reps)}</b></div>`}
+      ${g.useW?`<div>合計負荷<b>${fmt(vol)}kg</b></div>`:`<div>1回の平均レップ<b>${fmt(reps/Math.max(1,g.inP.length))}</b></div>`}
+      <div>実施回数<b>${g.inP.length}回</b></div>
+    </div>
+    ${mk.length>1?`<div class="g-sec">月別ベスト</div><div>${mk.map(m=>`<div class="g-month"><span>${m.slice(2).replace("-","/")}</span><div class="bar2" style="width:${(months[m]/mMax*100).toFixed(0)}%"></div><b>${fmt(months[m])}${u}</b></div>`).join("")}</div>`:""}
+    <div class="g-sec">メモ（${memos.length}件）</div>
+    ${memos.length?memos.map(x=>`<div class="g-memo"><small>${x.date.replace(/-/g,"/")}</small>${esc(x.memo).replace(/\n/g,"<br>")}</div>`).join(""):`<div class="g-note">この期間のメモはありません</div>`}
+    <button class="g-back" id="gBack2">‹ 種目一覧に戻る</button>`;
+  body.appendChild(box);
+  $("gBack2").onclick=()=>{ gEx=null; renderGrowth(); window.scrollTo(0,0); };
+}
 
 /* ---------- 種目選択 ---------- */
 $("fab").onclick=()=>{ $("modal").classList.remove("hidden"); renderTabs(); renderExList(); };
