@@ -1,6 +1,4 @@
 <title>筋トレ記録</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+JP:wght@500;700;900&display=swap">
 <style>
 /* Iron & fire: 鋼のダーク地に溶鉄オレンジ。数字は角ばった縦長書体でスコアボード風 */
 :root{
@@ -11,11 +9,12 @@
   color-scheme:dark;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{background:var(--bg)}
 html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--jp)}
 body{background:
   radial-gradient(120% 60% at 50% -10%, rgba(255,106,19,.10), transparent 60%),
   repeating-linear-gradient(45deg, rgba(255,255,255,.018) 0 2px, transparent 2px 6px),
-  var(--bg);min-height:100vh}
+  var(--bg)}
 button{font:inherit;border:none;background:none;color:inherit;cursor:pointer}
 button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 input{font:inherit;color:inherit}
@@ -156,8 +155,6 @@ header{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;padding:10px 
 .card.flash{box-shadow:0 0 0 2px var(--accent),0 0 18px rgba(255,106,19,.5);transition:box-shadow .3s}
 @media (prefers-reduced-motion:no-preference){ .day.done{transition:transform .15s} .day:active{transform:scale(.92)} }
 </style>
-</head>
-<body>
 
 <!-- ===== カレンダー画面 ===== -->
 <section id="home">
@@ -682,4 +679,8 @@ $("importFile").onchange=e=>{
 
 renderCal();
 initCloud();
+// フォントは表示をブロックしないよう後から読み込む（読めなくても標準フォントで表示）
+(()=>{ const l=document.createElement("link"); l.rel="stylesheet";
+  l.href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+JP:wght@500;700;900&display=swap";
+  document.head.appendChild(l); })();
 </script>
