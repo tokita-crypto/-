@@ -23,7 +23,11 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{background:var(--bg)}
 html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--jp)}
-body{background:
+/* ページ全体は動かさず、#app の中だけをスクロールさせる（スマホのアプリ内表示でズレないように） */
+html,body{height:100%;overflow:hidden;overscroll-behavior:none}
+#app{position:fixed;left:0;right:0;top:env(safe-area-inset-top,0px);bottom:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  background:
   radial-gradient(120% 60% at 50% -10%, rgba(255,106,19,.10), transparent 60%),
   repeating-linear-gradient(45deg, rgba(255,255,255,.018) 0 2px, transparent 2px 6px),
   var(--bg)}
@@ -34,7 +38,7 @@ input{font:inherit;color:inherit}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:11;background:#0b0b0d}
 
 /* header */
-header{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;padding:10px 14px 14px;
+header{position:sticky;top:0;z-index:10;padding:10px 14px 14px;
   background:linear-gradient(180deg,#0b0b0d,#17181b);
   border-bottom:2px solid var(--accent);box-shadow:0 6px 24px rgba(255,106,19,.18)}
 .bar{display:flex;align-items:center;justify-content:space-between;min-height:52px}
@@ -168,6 +172,7 @@ header{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;padding:10px 
 @media (prefers-reduced-motion:no-preference){ .day.done{transition:transform .15s} .day:active{transform:scale(.92)} }
 </style>
 
+<div id="app">
 <!-- ===== カレンダー画面 ===== -->
 <section id="home">
   <header>
@@ -227,6 +232,8 @@ header{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;padding:10px 
     <div id="gBody"></div>
   </div>
 </section>
+
+</div><!-- /#app -->
 
 <!-- ===== 種目選択 ===== -->
 <div class="modal hidden" id="dlg" style="align-items:center"><div class="dlg-box"><p id="dlgMsg"></p><div class="btns"><button id="dlgNo">キャンセル</button><button class="ok" id="dlgOk">OK</button></div></div></div>
@@ -330,6 +337,12 @@ async function initCloud(){
   }, e=>{ clearTimeout(timer); $("syncNote").textContent="クラウドに接続できません（この端末に一時保存中）"; });
 }
 const $ = id => document.getElementById(id);
+const scrollTop0 = () => { $("app").scrollTop=0; };
+function scrollToEl(el){   // #app の中だけスクロール（外側の画面は動かさない）
+  const app=$("app"), hdr=document.querySelector("section:not(.hidden) header");
+  const y=el.getBoundingClientRect().top-app.getBoundingClientRect().top+app.scrollTop-(hdr?hdr.offsetHeight:0)-12;
+  app.scrollTo({top:Math.max(0,y),behavior:"smooth"});
+}
 const pad = n => String(n).padStart(2,"0");
 const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
@@ -392,7 +405,7 @@ function openDay(date){
   const [y,m,d]=date.split("-");
   $("dayLabel").textContent=`${y}/${m}/${d}`;
   $("home").classList.add("hidden"); $("dayView").classList.remove("hidden");
-  window.scrollTo(0,0);
+  scrollTop0();
   renderDay();
 }
 $("backBtn").onclick=()=>{
@@ -550,11 +563,11 @@ const pctTxt=p=> p===null ? "—" : (p>=0?"+":"")+p.toFixed(1)+"%";
 const pctCls=p=> p===null ? "" : p>0 ? "up" : p<0 ? "down" : "";
 function openGrowth(){
   $("home").classList.add("hidden"); $("growthView").classList.remove("hidden");
-  gEx=null; window.scrollTo(0,0); renderGrowth();
+  gEx=null; scrollTop0(); renderGrowth();
 }
 $("growthBtn").onclick=openGrowth;
 $("gBack").onclick=()=>{
-  if(gEx){ gEx=null; renderGrowth(); window.scrollTo(0,0); return; }
+  if(gEx){ gEx=null; renderGrowth(); scrollTop0(); return; }
   $("growthView").classList.add("hidden"); $("home").classList.remove("hidden"); renderCal();
 };
 function renderGrowth(){
@@ -575,7 +588,7 @@ function renderGrowth(){
     const u=g.unit, pre=g.useW?"1RM ":"最大 ";
     const metric = !g.last ? "評価できる記録なし" : g.base&&g.base!==g.last ? `${pre}${fmt(g.val(g.base))}→${fmt(g.val(g.last))}${u}` : `${pre}${fmt(g.val(g.last))}${u}`;
     b.innerHTML=`<span class="nm">${esc(g.name)}<span class="mt">${esc(metric)}・${g.inAll.length}回</span></span>${spark(g.inP.map(g.val),84,30)}<span class="badge ${pctCls(g.pct)}">${pctTxt(g.pct)}</span>`;
-    b.onclick=()=>{ gEx=g.name; renderGrowth(); window.scrollTo(0,0); };
+    b.onclick=()=>{ gEx=g.name; renderGrowth(); scrollTop0(); };
     list.appendChild(b);
   });
   body.appendChild(list);
@@ -609,7 +622,7 @@ function renderGrowthDetail(body){
     ${memos.length?memos.map(x=>`<div class="g-memo"><small>${x.date.replace(/-/g,"/")}</small>${esc(x.memo).replace(/\n/g,"<br>")}</div>`).join(""):`<div class="g-note">この期間のメモはありません</div>`}
     <button class="g-back" id="gBack2">‹ 種目一覧に戻る</button>`;
   body.appendChild(box);
-  $("gBack2").onclick=()=>{ gEx=null; renderGrowth(); window.scrollTo(0,0); };
+  $("gBack2").onclick=()=>{ gEx=null; renderGrowth(); scrollTop0(); };
 }
 
 /* ---------- 種目選択 ---------- */
@@ -654,14 +667,14 @@ function addExercise(name){
   if(exist>=0){   // 同じ日に同じ種目は追加せず、そのカードへ移動
     $("modal").classList.add("hidden");
     const card=document.querySelector(`.card[data-idx="${exist}"]`);
-    if(card){ card.scrollIntoView({behavior:"smooth",block:"center"}); card.classList.add("flash"); setTimeout(()=>card.classList.remove("flash"),1500); }
+    if(card){ scrollToEl(card); card.classList.add("flash"); setTimeout(()=>card.classList.remove("flash"),1500); }
     toast("この種目は追加済みです"); return;
   }
   const prev=lastRecord(name);
   const sets=[0,1,2].map(i=>({w: prev&&prev.ex.sets[i]?prev.ex.sets[i].w:"", r:""}));
   db.logs[curDate].push({name, part:curPart, sets});
   save(); $("modal").classList.add("hidden"); renderDay();
-  setTimeout(()=>window.scrollTo({top:document.body.scrollHeight,behavior:"smooth"}),50);
+  setTimeout(()=>{ const cs=document.querySelectorAll("#list .card"); if(cs.length) scrollToEl(cs[cs.length-1]); },50);
 }
 
 /* ---------- バックアップ ---------- */
